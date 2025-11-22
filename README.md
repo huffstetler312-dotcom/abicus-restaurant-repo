@@ -114,38 +114,24 @@ yarn install
 
 3. **Set up environment variables**
 
-Create a `.env` file in the `nextjs_space` directory based on `.env.example`:
+Copy `.env.example` to `.env` in the `nextjs_space` directory and fill in your actual values:
 
-```env
-# Database
-DATABASE_URL=your_postgresql_connection_string
-
-# NextAuth
-NEXTAUTH_SECRET=your_nextauth_secret
-NEXTAUTH_URL=http://localhost:3000
-
-# AWS S3
-AWS_PROFILE=default
-AWS_REGION=us-east-1
-AWS_BUCKET_NAME=your_bucket_name
-AWS_FOLDER_PREFIX=odins-almanac/
-
-# Stripe
-STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
-STRIPE_SECRET_KEY=your_stripe_secret_key
-
-# Twilio
-TWILIO_ACCOUNT_SID=your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_phone_number
-
-# SendGrid
-SENDGRID_API_KEY=your_sendgrid_api_key
-SENDGRID_FROM_EMAIL=noreply@yourdomain.com
-
-# Abacus.AI LLM API
-ABACUSAI_API_KEY=your_abacus_api_key
+```bash
+cd nextjs_space
+cp .env.example .env
+# Then edit .env with your actual credentials
 ```
+
+The `.env.example` file contains detailed documentation for all required environment variables including:
+- **Database**: PostgreSQL connection string
+- **Authentication**: NextAuth.js secret and URL
+- **AWS S3**: Storage configuration for labels and reports
+- **Stripe**: Payment processing keys (use test keys for development)
+- **Twilio**: SMS notification credentials
+- **SendGrid**: Email notification API key
+- **Abacus.AI**: LLM API key for the AllWise Navigator chatbot
+
+See `.env.example` for detailed setup instructions and links to obtain API keys.
 
 4. **Set up the database**
 ```bash
