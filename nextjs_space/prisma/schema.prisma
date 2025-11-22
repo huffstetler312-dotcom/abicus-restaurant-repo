@@ -1,0 +1,364 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/odins_almanac/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// Multi-tenant Restaurant/Organization
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  
+  // Relations
+  users         User[]
+  foodItems     FoodItem[]
+  lineCheckTemplates LineCheckTemplate[]
+  lineCheckSubmissions LineCheckSubmission[]
+  notifications Notification[]
+  subscription  Subscription?
+  plTargets     PLTarget[]
+  plMonthlyEntries PLMonthlyEntry[]
+  
+  @@map("tenants")
+}
+
+// User accounts with roles
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String?
+  role          UserRole  @default(STAFF)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  emailVerified DateTime?
+  image         String?
+  
+  // Multi-tenant association
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  createdFoodItems FoodItem[] @relation("CreatedByUser")
+  lineCheckSubmissions LineCheckSubmission[]
+  sentNotifications Notification[] @relation("NotificationSender")
+  receivedNotifications Notification[] @relation("NotificationReceiver")
+  
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+// NextAuth.js required models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Food Items with expiration tracking
+model FoodItem {
+  id              String    @id @default(cuid())
+  name            String
+  category        String?
+  prepDate        DateTime
+  expirationDate  DateTime
+  quantity        Float?
+  unit            String?
+  location        String?   // Cooler, Freezer, etc.
+  notes           String?
+  qrCode          String?   // QR Code content
+  labelUrl        String?   // Generated label file URL
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Multi-tenant and user association
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdById     String
+  createdBy       User      @relation("CreatedByUser", fields: [createdById], references: [id])
+  
+  @@map("food_items")
+}
+
+// Line Check Templates
+model LineCheckTemplate {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  category    String?   // Opening, Closing, Mid-day, etc.
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Multi-tenant association
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  items       LineCheckItem[]
+  submissions LineCheckSubmission[]
+  
+  @@map("line_check_templates")
+}
+
+// Individual items within a line check template
+model LineCheckItem {
+  id                    String            @id @default(cuid())
+  title                 String
+  description           String?
+  checkType             LineCheckType     @default(BOOLEAN)
+  isRequired            Boolean           @default(true)
+  expectedValue         String?           // For temperature checks, etc.
+  toleranceRange        String?           // ±2°F, etc.
+  order                 Int               @default(0)
+  
+  // Template association
+  templateId            String
+  template              LineCheckTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  responses             LineCheckResponse[]
+  
+  @@map("line_check_items")
+}
+
+enum LineCheckType {
+  BOOLEAN     // Pass/Fail
+  TEMPERATURE // Temperature reading
+  TEXT        // Text input
+  NUMBER      // Numeric value
+  MULTIPLE_CHOICE
+}
+
+// Line check submissions (completed checks)
+model LineCheckSubmission {
+  id              String    @id @default(cuid())
+  submittedAt     DateTime  @default(now())
+  shift           String?   // Morning, Afternoon, Evening
+  notes           String?
+  isComplete      Boolean   @default(false)
+  
+  // Multi-tenant and user association
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  submittedById   String
+  submittedBy     User      @relation(fields: [submittedById], references: [id])
+  templateId      String
+  template        LineCheckTemplate @relation(fields: [templateId], references: [id])
+  
+  // Relations
+  responses       LineCheckResponse[]
+  
+  @@map("line_check_submissions")
+}
+
+// Individual responses within a submission
+model LineCheckResponse {
+  id           String               @id @default(cuid())
+  value        String               // The actual response value
+  isPassing    Boolean              @default(true)
+  notes        String?
+  createdAt    DateTime             @default(now())
+  
+  // Relations
+  submissionId String
+  submission   LineCheckSubmission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         LineCheckItem        @relation(fields: [itemId], references: [id])
+  
+  @@map("line_check_responses")
+}
+
+// Notification system
+model Notification {
+  id          String           @id @default(cuid())
+  title       String
+  message     String
+  type        NotificationType @default(INFO)
+  priority    NotificationPriority @default(NORMAL)
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  readAt      DateTime?
+  
+  // Email/SMS tracking
+  emailSent   Boolean          @default(false)
+  smsSent     Boolean          @default(false)
+  emailSentAt DateTime?
+  smsSentAt   DateTime?
+  
+  // Multi-tenant association
+  tenantId    String
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // User relations (optional - system notifications may not have sender)
+  senderId    String?
+  sender      User?            @relation("NotificationSender", fields: [senderId], references: [id])
+  receiverId  String
+  receiver    User             @relation("NotificationReceiver", fields: [receiverId], references: [id])
+  
+  @@map("notifications")
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  EXPIRATION_ALERT
+  LINE_CHECK_DUE
+  COMPLIANCE_ISSUE
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+// Subscription management
+model Subscription {
+  id                  String              @id @default(cuid())
+  stripeCustomerId    String              @unique
+  stripeSubscriptionId String?            @unique
+  status              SubscriptionStatus  @default(TRIALING)
+  plan                SubscriptionPlan    @default(BASIC)
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  trialEnd            DateTime?
+  canceledAt          DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  
+  // Multi-tenant association
+  tenantId            String              @unique
+  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum SubscriptionPlan {
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+// P&L (Profit & Loss) Management
+model PLTarget {
+  id                String    @id @default(cuid())
+  year              Int       // Fiscal year
+  
+  // Target percentages and amounts
+  targetRevenue     Float     // Monthly target revenue
+  foodCostPercent   Float     // Target food cost %
+  laborCostPercent  Float     // Target labor cost %
+  overheadPercent   Float     // Target overhead %
+  targetProfit      Float?    // Optional target profit amount
+  
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Multi-tenant association
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  monthlyEntries    PLMonthlyEntry[]
+  
+  @@unique([tenantId, year])
+  @@map("pl_targets")
+}
+
+// Monthly P&L entries
+model PLMonthlyEntry {
+  id                String    @id @default(cuid())
+  year              Int
+  month             Int       // 1-12
+  
+  // Actual values
+  actualRevenue     Float
+  actualFoodCost    Float
+  actualLaborCost   Float
+  actualOverhead    Float
+  actualProfit      Float     // Calculated: revenue - (food + labor + overhead)
+  
+  // Additional categories (optional)
+  marketingCost     Float     @default(0)
+  utilitiesCost     Float     @default(0)
+  rentCost          Float     @default(0)
+  otherExpenses     Float     @default(0)
+  
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Multi-tenant association
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Target association
+  targetId          String
+  target            PLTarget  @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  
+  @@unique([tenantId, year, month])
+  @@map("pl_monthly_entries")
+}
